@@ -1,10 +1,29 @@
 # CNPG Migrator
 
 [![CI](https://github.com/kaskol10/cnpg-migrator/actions/workflows/ci.yml/badge.svg)](https://github.com/kaskol10/cnpg-migrator/actions/workflows/ci.yml)
+[![Release](https://github.com/kaskol10/cnpg-migrator/actions/workflows/release.yml/badge.svg)](https://github.com/kaskol10/cnpg-migrator/actions/workflows/release.yml)
 
 A web-based tool to migrate PostgreSQL databases to **CloudNativePG (CNPG)** clusters running in Kubernetes.
 
 The primary use case is moving off **AWS RDS** (or any external PostgreSQL) onto CNPG using a **dump & restore** workflow orchestrated by ephemeral Kubernetes Jobs.
+
+## Screenshots
+
+**New migration** — configure source (RDS) and target (CNPG) endpoints:
+
+![New migration form](screenshots/new-migration-form.png)
+
+**Options** — dump format, parallelism, PVC size, and restore mode:
+
+![Migration options](screenshots/migration-options.png)
+
+**Migration status** — progress through dump, restore, and completion:
+
+![Completed migration](screenshots/migration-completed.png)
+
+**Verification & logs** — per-database size comparison and job output:
+
+![Verification results and logs](screenshots/verification-and-logs.png)
 
 ## Why migrate to CloudNativePG?
 
@@ -110,15 +129,27 @@ Open http://localhost:5173
 
 ## Deploy with Helm
 
-```bash
-docker build --platform linux/arm64 --provenance=false -t ghcr.io/YOUR_ORG/cnpg-migrator:0.1.0 .
-docker push ghcr.io/YOUR_ORG/cnpg-migrator:0.1.0
+Images and charts are published to [GitHub Container Registry](https://github.com/kaskol10/cnpg-migrator/pkgs/container/cnpg-migrator) on every push to `main`. Tag a release with `v0.1.0` to publish semver versions.
 
+### From GHCR (recommended)
+
+```bash
+helm upgrade --install cnpg-migrator oci://ghcr.io/kaskol10/charts/cnpg-migrator \
+  --version 0.1.0 \
+  --namespace cnpg-migrator \
+  --create-namespace
+```
+
+The chart defaults to `ghcr.io/kaskol10/cnpg-migrator` with `image.tag` matching the chart `appVersion`. For `main` builds, use the chart version shown in the [Release workflow](https://github.com/kaskol10/cnpg-migrator/actions/workflows/release.yml) summary (e.g. `0.1.0+abc1234`).
+
+### From source
+
+```bash
 helm upgrade --install cnpg-migrator k8s/helm/cnpg-migrator \
   --namespace cnpg-migrator \
   --create-namespace \
-  --set image.repository=ghcr.io/YOUR_ORG/cnpg-migrator \
-  --set image.tag=0.1.0
+  --set image.repository=ghcr.io/kaskol10/cnpg-migrator \
+  --set image.tag=latest
 ```
 
 Port-forward to access the UI:
@@ -180,7 +211,13 @@ The Docker image is **ARM64-only** (for Apple Silicon and arm64 Kubernetes nodes
 
 ```bash
 make docker
-make docker-push IMAGE=ghcr.io/YOUR_ORG/cnpg-migrator:0.1.0
+make docker-push IMAGE=ghcr.io/kaskol10/cnpg-migrator:0.1.0
+```
+
+Or cut a release tag — CI publishes automatically:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 ## Project structure
@@ -192,7 +229,9 @@ cnpg-migrator/
 ├── k8s/
 │   ├── helm/cnpg-migrator/  # Helm chart
 │   └── README.md
-├── .github/workflows/ci.yml
+├── .github/workflows/
+│   ├── ci.yml               # PR checks
+│   └── release.yml          # Publish image + chart to GHCR
 ├── Dockerfile
 └── Makefile
 ```

@@ -5,26 +5,45 @@ Deploy **cnpg-migrator** with Helm.
 ## Prerequisites
 
 - Kubernetes cluster with the [CloudNativePG operator](https://cloudnative-pg.io/) installed
-- Helm 3
+- Helm 3.8+ (OCI support)
 - Network path from migration Job pods to your source PostgreSQL and CNPG clusters
 - A `StorageClass` that supports `ReadWriteOnce` PVCs
 
-## Install
+## Install from GHCR
+
+Charts are published to `oci://ghcr.io/kaskol10/charts/cnpg-migrator` on every push to `main`.
 
 ```bash
-helm install cnpg-migrator ./k8s/helm/cnpg-migrator \
+helm upgrade --install cnpg-migrator oci://ghcr.io/kaskol10/charts/cnpg-migrator \
+  --version 0.1.0 \
+  --namespace cnpg-migrator \
+  --create-namespace
+```
+
+List published chart versions:
+
+```bash
+helm search repo oci://ghcr.io/kaskol10/charts/cnpg-migrator --versions
+```
+
+> **Note:** GHCR packages are private by default. Set the `cnpg-migrator` image and `charts/cnpg-migrator` chart to **public** under GitHub → Packages, or authenticate with `helm registry login ghcr.io`.
+
+## Install from source
+
+```bash
+helm upgrade --install cnpg-migrator ./k8s/helm/cnpg-migrator \
   --namespace cnpg-migrator \
   --create-namespace \
-  --set image.repository=ghcr.io/YOUR_ORG/cnpg-migrator \
-  --set image.tag=0.1.0
+  --set image.repository=ghcr.io/kaskol10/cnpg-migrator \
+  --set image.tag=latest
 ```
 
 ## Upgrade
 
 ```bash
-helm upgrade cnpg-migrator ./k8s/helm/cnpg-migrator \
+helm upgrade cnpg-migrator oci://ghcr.io/kaskol10/charts/cnpg-migrator \
   --namespace cnpg-migrator \
-  --set image.tag=0.2.0
+  --version 0.2.0
 ```
 
 ## Common values
@@ -40,7 +59,8 @@ helm upgrade cnpg-migrator ./k8s/helm/cnpg-migrator \
 Example with ingress and arm64 job scheduling:
 
 ```bash
-helm install cnpg-migrator ./k8s/helm/cnpg-migrator \
+helm upgrade --install cnpg-migrator oci://ghcr.io/kaskol10/charts/cnpg-migrator \
+  --version 0.1.0 \
   --namespace cnpg-migrator \
   --create-namespace \
   --set ingress.enabled=true \
