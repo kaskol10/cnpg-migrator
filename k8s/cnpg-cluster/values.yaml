@@ -1,0 +1,69 @@
+postgresql:
+  fullnameOverride: test-cnpg-cluster
+  type: postgresql
+  mode: standalone
+  version:
+    postgresql: "15.17"
+  cluster:
+    additionalLabels:
+      release: prometheus
+    imageName: ghcr.io/cloudnative-pg/postgresql:15.17
+    instances: 3
+    storage:
+      size: 2Gi
+    resources:
+      limits:
+        cpu: 200m
+        memory: 300Mi
+      requests:
+        cpu: 200m
+        memory: 300Mi
+    affinity:
+      topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        topology.kubernetes.io/zone: eu-west-1a
+      tolerations:
+        - key: kubernetes.io/arch
+          operator: Equal
+          value: arm64
+          effect: NoSchedule
+    enableSuperuserAccess: true
+    superuserSecret: test-cnpg-cluster-root-user
+    initdb:
+      database: test-cnpg-cluster
+      owner: test-cnpg-cluster
+      secret:
+        name: test-cnpg-cluster
+    monitoring: 
+      enabled: true
+      podMonitor: 
+        labels: 
+          release: prometheus
+    serviceAccountTemplate:
+      metadata:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/postgresql-test-cnpg-cluster
+  backups:
+    enabled: true
+    provider: s3
+    s3:
+      region: "eu-west-1"
+      bucket: "test-cnpg-cluster"
+      path: "/test-cnpg-cluster"
+      inheritFromIAMRole: true
+    secret:
+      create: true
+    wal:
+      compression: gzip
+      encryption: AES256
+      maxParallel: 1
+    data:
+      compression: gzip
+      encryption: AES256
+      jobs: 2
+    scheduledBackups:
+      - name: daily-backup
+        schedule: "0 0 2 * * *"
+        backupOwnerReference: self
+        method: barmanObjectStore
+    retentionPolicy: "4d"

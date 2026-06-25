@@ -228,6 +228,7 @@ cnpg-migrator/
 ├── frontend/                # React UI
 ├── k8s/
 │   ├── helm/cnpg-migrator/  # Helm chart
+│   ├── cnpg-cluster/        # Example CNPG target cluster
 │   └── README.md
 ├── .github/workflows/
 │   ├── ci.yml               # PR checks

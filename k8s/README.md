@@ -75,3 +75,7 @@ helm upgrade --install cnpg-migrator oci://ghcr.io/kaskol10/charts/cnpg-migrator
 ```bash
 helm uninstall cnpg-migrator --namespace cnpg-migrator
 ```
+
+## CNPG cluster example
+
+See [cnpg-cluster/](cnpg-cluster/) for an example umbrella chart that provisions a CloudNativePG cluster to use as a migration target.
