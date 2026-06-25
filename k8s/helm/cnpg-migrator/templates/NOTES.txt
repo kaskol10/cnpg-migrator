@@ -1,0 +1,17 @@
+CNPG Migrator has been deployed.
+
+1. Port-forward to access the UI locally:
+
+  kubectl port-forward -n {{ include "cnpg-migrator.namespace" . }} svc/{{ include "cnpg-migrator.fullname" . }} 8080:{{ .Values.service.port }}
+
+  Open http://localhost:8080
+
+{{- if .Values.ingress.enabled }}
+
+2. Ingress is enabled. Access the UI at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+Security: this release has no built-in authentication. Do not expose it publicly without an auth layer.

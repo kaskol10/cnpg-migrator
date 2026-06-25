@@ -1,0 +1,32 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cnpg-migrator.fullname" . }}
+  namespace: {{ include "cnpg-migrator.namespace" . }}
+  labels:
+    {{- include "cnpg-migrator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cnpg-migrator.fullname" . }}
+  namespace: {{ include "cnpg-migrator.namespace" . }}
+  labels:
+    {{- include "cnpg-migrator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cnpg-migrator.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cnpg-migrator.serviceAccountName" . }}
+    namespace: {{ include "cnpg-migrator.namespace" . }}
+{{- end }}

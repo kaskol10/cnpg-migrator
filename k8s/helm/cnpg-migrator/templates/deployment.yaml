@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cnpg-migrator.fullname" . }}
+  namespace: {{ include "cnpg-migrator.namespace" . }}
+  labels:
+    {{- include "cnpg-migrator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cnpg-migrator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cnpg-migrator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cnpg-migrator.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "cnpg-migrator.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: IN_CLUSTER
+              value: {{ .Values.config.inCluster | quote }}
+            - name: NAMESPACE
+              value: {{ include "cnpg-migrator.namespace" . | quote }}
+            - name: ADDR
+              value: {{ .Values.config.addr | quote }}
+            - name: POSTGRES_VERSIONS
+              value: {{ .Values.config.postgresVersions | quote }}
+            {{- if .Values.config.postgresImages }}
+            - name: POSTGRES_IMAGES
+              value: {{ .Values.config.postgresImages | quote }}
+            {{- else }}
+            - name: POSTGRES_IMAGE_PREFIX
+              value: {{ .Values.config.postgresImagePrefix | quote }}
+            {{- end }}
+            - name: DEFAULT_SOURCE_VERSION
+              value: {{ .Values.config.defaultSourceVersion | quote }}
+            - name: DEFAULT_TARGET_VERSION
+              value: {{ .Values.config.defaultTargetVersion | quote }}
+            - name: DEFAULT_STORAGE_SIZE
+              value: {{ .Values.config.defaultStorageSize | quote }}
+            - name: POLL_INTERVAL_SEC
+              value: {{ .Values.config.pollIntervalSec | quote }}
+            {{- if .Values.config.jobNodeSelector }}
+            - name: NODE_SELECTOR
+              value: {{ .Values.config.jobNodeSelector | quote }}
+            {{- end }}
+            {{- if .Values.config.jobTolerations }}
+            - name: TOLERATIONS
+              value: {{ .Values.config.jobTolerations | quote }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}

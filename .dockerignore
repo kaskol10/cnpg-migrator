@@ -1,0 +1,12 @@
+# Git and IDE
+.git
+.idea
+.vscode
+*.md
+
+# Node
+frontend/node_modules
+
+# Go — source only; binary is built inside Docker
+backend/bin
+backend/web/dist

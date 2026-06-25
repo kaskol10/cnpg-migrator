@@ -1,0 +1,81 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/kaskol10/cnpg-migrator
+  tag: "" # defaults to Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+createNamespace: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: cnpg-migrator.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+config:
+  addr: ":8080"
+  inCluster: true
+  postgresVersions: "13,14,15,16,17"
+  postgresImagePrefix: "postgres:"
+  postgresImages: ""
+  defaultSourceVersion: "16"
+  defaultTargetVersion: "16"
+  defaultStorageSize: "50Gi"
+  pollIntervalSec: "5"
+  # Scheduling for migration and verification Jobs created by the API.
+  # Format: key=value,key2=value2
+  jobNodeSelector: ""
+  # Format: key=value:Effect;key2=value2:Effect2
+  jobTolerations: ""
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 5

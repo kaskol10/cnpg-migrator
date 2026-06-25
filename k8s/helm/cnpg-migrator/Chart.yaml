@@ -1,0 +1,15 @@
+apiVersion: v2
+name: cnpg-migrator
+description: Web UI and API to migrate PostgreSQL databases to CloudNativePG
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - postgresql
+  - cloudnativepg
+  - cnpg
+  - migration
+  - rds
+home: https://github.com/kaskol10/cnpg-migrator
+sources:
+  - https://github.com/kaskol10/cnpg-migrator
