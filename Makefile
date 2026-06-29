@@ -1,6 +1,13 @@
 .PHONY: dev backend frontend build docker deploy helm-lint helm-template tidy docker-push docker-verify-image docker-test-image
 
-PLATFORM := linux/arm64
+UNAME_ARCH := $(shell uname -m)
+ifeq ($(UNAME_ARCH),arm64)
+  PLATFORM := linux/arm64
+  ELF_PATTERN := ELF.*aarch64
+else
+  PLATFORM := linux/amd64
+  ELF_PATTERN := ELF.*x86-64
+endif
 IMAGE_NAME := cnpg-migrator
 
 dev:
@@ -28,9 +35,9 @@ docker:
 docker-test-image:
 	@test -n "$(IMAGE)" || (echo "IMAGE is required" && exit 1)
 	@echo "Image architecture: $$(docker inspect $(IMAGE) --format '{{.Architecture}}')"
-	@docker run --rm --platform $(PLATFORM) --entrypoint file $(IMAGE) ./server | grep -q 'ELF.*aarch64' || \
-		(echo "ERROR: ./server is not linux/arm64 ELF" && docker run --rm --platform $(PLATFORM) --entrypoint file $(IMAGE) ./server && exit 1)
-	@echo "OK: ./server is linux/arm64 ELF inside $(IMAGE)"
+	@docker run --rm --platform $(PLATFORM) --entrypoint file $(IMAGE) ./server | grep -q '$(ELF_PATTERN)' || \
+		(echo "ERROR: ./server is not $(PLATFORM) ELF" && docker run --rm --platform $(PLATFORM) --entrypoint file $(IMAGE) ./server && exit 1)
+	@echo "OK: ./server is $(PLATFORM) ELF inside $(IMAGE)"
 
 docker-push:
 	@test -n "$(IMAGE)" || (echo "IMAGE is required, e.g. make docker-push IMAGE=ghcr.io/YOUR_ORG/cnpg-migrator:0.1.0" && exit 1)

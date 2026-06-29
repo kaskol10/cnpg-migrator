@@ -208,7 +208,7 @@ The `pg_restore` **client** uses the newer of source and target versions. Downgr
 
 ## Build
 
-The Docker image is **ARM64-only** (for Apple Silicon and arm64 Kubernetes nodes):
+The Docker image is published for **linux/amd64** and **linux/arm64**:
 
 ```bash
 make docker

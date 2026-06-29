@@ -81,12 +81,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: false
           load: true
           tags: cnpg-migrator:ci
           provenance: false
 
-      - name: Verify arm64 binary
+      - name: Verify amd64 binary
         run: |
-          docker run --rm --platform linux/arm64 --entrypoint file cnpg-migrator:ci ./server | grep -q 'ELF.*aarch64'
+          docker run --rm --entrypoint file cnpg-migrator:ci ./server | grep -q 'ELF.*x86-64'
