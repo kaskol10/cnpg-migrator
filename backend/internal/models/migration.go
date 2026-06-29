@@ -38,6 +38,8 @@ type MigrationOptions struct {
 	SchemaOnly         bool   `json:"schema_only"`
 	DataOnly           bool   `json:"data_only"`
 	CleanBeforeRestore bool   `json:"clean_before_restore"`
+	PreserveOwnership  bool   `json:"preserve_ownership"`  // keep object owners and ACLs from source
+	MigrateRoles       bool   `json:"migrate_roles"`       // dump/apply roles before restore (requires preserve_ownership)
 	AllDatabases       bool   `json:"all_databases"`       // dump/restore all user databases
 	ExcludeDatabases   string `json:"exclude_databases"`   // comma-separated names to skip
 	StorageSize          string `json:"storage_size"`                    // PVC size, e.g. "50Gi"

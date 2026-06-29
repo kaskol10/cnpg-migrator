@@ -30,6 +30,8 @@ const emptyForm = (config?: AppConfig): CreateMigrationRequest => ({
     schema_only: false,
     data_only: false,
     clean_before_restore: false,
+    preserve_ownership: false,
+    migrate_roles: true,
     all_databases: false,
     exclude_databases: 'rdsadmin',
     storage_size: '50Gi',
@@ -367,6 +369,37 @@ export default function MigrationForm({ onCreated }: Props) {
                 onChange={(e) => updateOptions('data_only', e.target.checked)}
               />
               Data only
+            </label>
+          </div>
+          <div className="field" style={{ justifyContent: 'flex-end' }}>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.options.preserve_ownership}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setForm((f) => ({
+                    ...f,
+                    options: {
+                      ...f.options,
+                      preserve_ownership: checked,
+                      migrate_roles: checked ? f.options.migrate_roles : false,
+                    },
+                  }))
+                }}
+              />
+              Preserve ownership and grants
+            </label>
+          </div>
+          <div className="field" style={{ justifyContent: 'flex-end' }}>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.options.migrate_roles}
+                disabled={!form.options.preserve_ownership}
+                onChange={(e) => updateOptions('migrate_roles', e.target.checked)}
+              />
+              Migrate roles from source
             </label>
           </div>
           <div className="field" style={{ justifyContent: 'flex-end' }}>

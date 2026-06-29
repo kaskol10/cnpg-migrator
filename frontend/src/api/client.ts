@@ -31,6 +31,8 @@ export interface MigrationOptions {
   schema_only: boolean
   data_only: boolean
   clean_before_restore: boolean
+  preserve_ownership: boolean
+  migrate_roles: boolean
   all_databases: boolean
   exclude_databases: string
   storage_size: string

@@ -250,6 +250,39 @@ func (c *Client) getContainerLogs(ctx context.Context, podName, containerName st
 	return string(data), nil
 }
 
+// pgDumpMetaFlags controls whether ownership and ACLs are included in the dump.
+func pgDumpMetaFlags(opts models.MigrationOptions) string {
+	if opts.PreserveOwnership {
+		return ""
+	}
+	return " --no-owner --no-acl"
+}
+
+// pgRestoreMetaFlags controls whether pg_restore reapplies owners and ACLs.
+func pgRestoreMetaFlags(opts models.MigrationOptions) string {
+	if opts.PreserveOwnership {
+		return ""
+	}
+	return " --no-owner --no-acl"
+}
+
+func roleDumpScript(host string, port int, user string) string {
+	return fmt.Sprintf(`
+echo "Dumping roles from source..."
+pg_dumpall -h %s -p %d -U %s --roles-only --no-role-passwords | \
+  grep -v -E '(rdsadmin|rdsrepladmin|rds_superuser|rds_password|rds_iam)' > /dump/roles.sql
+`, host, port, user)
+}
+
+func roleRestoreScript(host string, port int, user string) string {
+	return fmt.Sprintf(`
+if [ -f /dump/roles.sql ] && [ -s /dump/roles.sql ]; then
+  echo "Applying roles to CNPG (existing roles are skipped)..."
+  psql -h %s -p %d -U %s -d postgres -v ON_ERROR_STOP=0 -f /dump/roles.sql
+fi
+`, host, port, user)
+}
+
 func buildDumpScript(m *models.Migration) string {
 	if m.Options.AllDatabases {
 		return buildAllDatabasesDumpScript(m)
@@ -277,8 +310,9 @@ func buildSingleDatabaseDumpScript(m *models.Migration) string {
 		sslMode = "require"
 	}
 
-	dumpFlags := fmt.Sprintf("--format=%s --no-owner --no-acl -h %s -p %d -U %s -d %s",
-		format, src.Host, src.Port, src.Username, src.Database)
+	metaFlags := pgDumpMetaFlags(opts)
+	dumpFlags := fmt.Sprintf("--format=%s%s -h %s -p %d -U %s -d %s",
+		format, metaFlags, src.Host, src.Port, src.Username, src.Database)
 	if opts.SchemaOnly {
 		dumpFlags += " --schema-only"
 	}
@@ -287,6 +321,10 @@ func buildSingleDatabaseDumpScript(m *models.Migration) string {
 	}
 
 	dumpFile := dumpFilePath(format, "")
+	roleDump := ""
+	if opts.PreserveOwnership && opts.MigrateRoles {
+		roleDump = roleDumpScript(src.Host, src.Port, src.Username)
+	}
 
 	return fmt.Sprintf(`set -euo pipefail
 
@@ -294,10 +332,11 @@ export PGPASSWORD
 export PGSSLMODE=%s
 
 echo "=== Phase: dump ==="
+%s
 echo "Dumping from RDS %s:%d/%s (PostgreSQL %s) ..."
 pg_dump %s -f %s
 echo "Dump completed."
-`, sslMode, src.Host, src.Port, src.Database, opts.SourceVersion, dumpFlags, dumpFile)
+`, sslMode, roleDump, src.Host, src.Port, src.Database, opts.SourceVersion, dumpFlags, dumpFile)
 }
 
 func buildAllDatabasesDumpScript(m *models.Migration) string {
@@ -327,6 +366,16 @@ func buildAllDatabasesDumpScript(m *models.Migration) string {
 	}
 
 	dumpPathScript := allDatabasesDumpPathScript(format)
+	metaFlags := pgDumpMetaFlags(opts)
+	roleDump := ""
+	if opts.PreserveOwnership && opts.MigrateRoles {
+		roleDump = roleDumpScript(src.Host, src.Port, src.Username)
+	}
+	ownerCapture := ""
+	if opts.PreserveOwnership {
+		ownerCapture = `  owner=$(psql -h ` + fmt.Sprintf("%s -p %d -U %s", src.Host, src.Port, src.Username) + ` -d postgres -Atc "SELECT pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname = '$db'")
+  echo "$db:$owner" >> /dump/database_owners.txt`
+	}
 
 	return fmt.Sprintf(`set -euo pipefail
 
@@ -336,6 +385,7 @@ export PGSSLMODE=%s
 mkdir -p /dump/databases
 
 echo "=== Phase: dump ==="
+%s
 echo "Listing databases on RDS %s:%d (PostgreSQL %s) ..."
 
 DATABASES=$(psql -h %s -p %d -U %s -d postgres -Atc "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
@@ -349,9 +399,10 @@ for db in $DATABASES; do
     continue
   fi
 
+%s
   dump_file=%s
   echo "Dumping database: $db -> $dump_file"
-  pg_dump --format=%s --no-owner --no-acl -h %s -p %d -U %s -d "$db"%s -f "$dump_file"
+  pg_dump --format=%s%s -h %s -p %d -U %s -d "$db"%s -f "$dump_file"
   DUMPED=$((DUMPED + 1))
 done
 
@@ -362,11 +413,13 @@ fi
 
 echo "Dump completed ($DUMPED databases)."
 `, sslMode,
+		roleDump,
 		src.Host, src.Port, opts.SourceVersion,
 		src.Host, src.Port, src.Username,
 		exclude,
+		ownerCapture,
 		dumpPathScript,
-		format, src.Host, src.Port, src.Username, extraFlags)
+		format, metaFlags, src.Host, src.Port, src.Username, extraFlags)
 }
 
 func buildSingleDatabaseRestoreScript(m *models.Migration) string {
@@ -390,20 +443,25 @@ func buildSingleDatabaseRestoreScript(m *models.Migration) string {
 		username = "postgres"
 	}
 
-	restoreCmd := buildRestoreCommand(format, targetHost, targetPort, username, tgt.Database, dumpFile, jobs, opts.CleanBeforeRestore)
+	restoreCmd := buildRestoreCommand(format, targetHost, targetPort, username, tgt.Database, dumpFile, jobs, opts)
 	restoreClient := resolveRestoreClientVersion(opts)
+	roleRestore := ""
+	if opts.PreserveOwnership && opts.MigrateRoles {
+		roleRestore = roleRestoreScript(targetHost, targetPort, username)
+	}
 
 	return fmt.Sprintf(`set -euo pipefail
 
 export PGPASSWORD="$TARGET_PGPASSWORD"
 
 echo "=== Phase: restore ==="
+%s
 echo "Restoring to CNPG %s:%d (server PostgreSQL %s, pg_restore client %s) ..."
 %s
 echo "Restore completed."
 
 echo "=== Migration finished successfully ==="
-`, targetHost, targetPort, opts.TargetVersion, restoreClient, restoreCmd)
+`, roleRestore, targetHost, targetPort, opts.TargetVersion, restoreClient, restoreCmd)
 }
 
 func buildAllDatabasesRestoreScript(m *models.Migration) string {
@@ -426,25 +484,25 @@ func buildAllDatabasesRestoreScript(m *models.Migration) string {
 		username = "postgres"
 	}
 
-	cleanFlags := ""
-	if opts.CleanBeforeRestore {
-		cleanFlags = " --clean --if-exists"
-	}
-
-	restoreLoop := allDatabasesRestoreLoop(format, targetHost, targetPort, username, jobs, cleanFlags)
+	restoreLoop := allDatabasesRestoreLoop(format, targetHost, targetPort, username, jobs, opts)
 	restoreClient := resolveRestoreClientVersion(opts)
+	roleRestore := ""
+	if opts.PreserveOwnership && opts.MigrateRoles {
+		roleRestore = roleRestoreScript(targetHost, targetPort, username)
+	}
 
 	return fmt.Sprintf(`set -euo pipefail
 
 export PGPASSWORD="$TARGET_PGPASSWORD"
 
 echo "=== Phase: restore ==="
+%s
 echo "Restoring all databases to CNPG %s:%d (server PostgreSQL %s, pg_restore client %s) ..."
 
 %s
 
 echo "=== Migration finished successfully ==="
-`, targetHost, targetPort, opts.TargetVersion, restoreClient, restoreLoop)
+`, roleRestore, targetHost, targetPort, opts.TargetVersion, restoreClient, restoreLoop)
 }
 
 func resolveTargetHost(tgt models.TargetConfig) string {
@@ -510,8 +568,32 @@ func allDatabasesDumpPathScript(format string) string {
 	}
 }
 
-func allDatabasesRestoreLoop(format, host string, port int, user string, jobs int, cleanFlags string) string {
+func createDatabaseBash(conn string, preserveOwnership bool) string {
+	if !preserveOwnership {
+		return fmt.Sprintf(`  psql %s -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
+    psql %s -d postgres -c "CREATE DATABASE \"$db\""`, conn, conn)
+	}
+	return fmt.Sprintf(`  if ! psql %s -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then
+    owner=""
+    if [ -f /dump/database_owners.txt ]; then
+      owner=$(grep "^${db}:" /dump/database_owners.txt | head -1 | cut -d: -f2-)
+    fi
+    if [ -n "$owner" ]; then
+      psql %s -d postgres -c "CREATE DATABASE \"$db\" OWNER \"$owner\""
+    else
+      psql %s -d postgres -c "CREATE DATABASE \"$db\""
+    fi
+  fi`, conn, conn, conn)
+}
+
+func allDatabasesRestoreLoop(format, host string, port int, user string, jobs int, opts models.MigrationOptions) string {
 	conn := pgConnFlags(host, port, user)
+	metaFlags := pgRestoreMetaFlags(opts)
+	cleanFlags := ""
+	if opts.CleanBeforeRestore {
+		cleanFlags = " --clean --if-exists"
+	}
+	createDB := createDatabaseBash(conn, opts.PreserveOwnership)
 	switch format {
 	case "plain":
 		return fmt.Sprintf(`RESTORED=0
@@ -519,8 +601,7 @@ for dump_file in /dump/databases/*.sql; do
   [ -f "$dump_file" ] || continue
   db=$(basename "$dump_file" .sql)
   echo "Restoring database: $db"
-  psql %s -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
-    psql %s -d postgres -c "CREATE DATABASE \"$db\""
+%s
   psql %s -d "$db" -f "$dump_file"
   RESTORED=$((RESTORED + 1))
 done
@@ -530,16 +611,15 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, conn, conn, conn)
+echo "Restore completed ($RESTORED databases)."`, createDB, conn)
 	case "directory":
 		return fmt.Sprintf(`RESTORED=0
 for dump_dir in /dump/databases/*/; do
   [ -d "$dump_dir" ] || continue
   db=$(basename "$dump_dir")
   echo "Restoring database: $db"
-  psql %s -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
-    psql %s -d postgres -c "CREATE DATABASE \"$db\""
-  pg_restore %s -d "$db"%s --no-owner --no-acl -j %d "$dump_dir"
+%s
+  pg_restore %s -d "$db"%s%s -j %d "$dump_dir"
   RESTORED=$((RESTORED + 1))
 done
 
@@ -548,16 +628,15 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, conn, conn, conn, cleanFlags, jobs)
+echo "Restore completed ($RESTORED databases)."`, createDB, conn, cleanFlags, metaFlags, jobs)
 	default:
 		return fmt.Sprintf(`RESTORED=0
 for dump_file in /dump/databases/*.dump; do
   [ -f "$dump_file" ] || continue
   db=$(basename "$dump_file" .dump)
   echo "Restoring database: $db"
-  psql %s -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
-    psql %s -d postgres -c "CREATE DATABASE \"$db\""
-  pg_restore %s -d "$db"%s --no-owner --no-acl -j %d "$dump_file"
+%s
+  pg_restore %s -d "$db"%s%s -j %d "$dump_file"
   RESTORED=$((RESTORED + 1))
 done
 
@@ -566,24 +645,25 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, conn, conn, conn, cleanFlags, jobs)
+echo "Restore completed ($RESTORED databases)."`, createDB, conn, cleanFlags, metaFlags, jobs)
 	}
 }
 
-func buildRestoreCommand(format, host string, port int, user, database, dumpFile string, jobs int, clean bool) string {
+func buildRestoreCommand(format, host string, port int, user, database, dumpFile string, jobs int, opts models.MigrationOptions) string {
 	conn := pgConnFlags(host, port, user)
+	metaFlags := pgRestoreMetaFlags(opts)
 	switch format {
 	case "custom", "directory":
 		flags := fmt.Sprintf("%s -d %s", conn, database)
-		if clean {
+		if opts.CleanBeforeRestore {
 			flags += " --clean --if-exists"
 		}
-		return fmt.Sprintf(`pg_restore %s --no-owner --no-acl -j %d %s`, flags, jobs, dumpFile)
+		return fmt.Sprintf(`pg_restore %s%s -j %d %s`, flags, metaFlags, jobs, dumpFile)
 	case "plain":
 		return fmt.Sprintf(`psql %s -d %s -f %s`, conn, database, dumpFile)
 	default:
-		return fmt.Sprintf(`pg_restore %s -d %s --no-owner --no-acl -j %d %s`,
-			conn, database, jobs, dumpFile)
+		return fmt.Sprintf(`pg_restore %s -d %s%s -j %d %s`,
+			conn, database, metaFlags, jobs, dumpFile)
 	}
 }
 
