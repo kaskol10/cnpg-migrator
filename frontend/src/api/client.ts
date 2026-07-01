@@ -33,6 +33,7 @@ export interface MigrationOptions {
   clean_before_restore: boolean
   preserve_ownership: boolean
   migrate_roles: boolean
+  skip_extensions: boolean
   all_databases: boolean
   exclude_databases: string
   storage_size: string

@@ -93,12 +93,14 @@ flowchart TB
 - Single-database or all-databases migration
 - Post-migration verification (database presence and size comparison)
 - Optional ownership and grant preservation (with role migration from source)
+- Skip extension restore for CNPG-managed extensions (default on)
 - Helm chart for deployment
 
 ## Limitations
 
 - **Logical migration only** — requires a maintenance window; not zero-downtime replication.
 - **Ownership** — by default objects are restored as the target user (`--no-owner --no-acl`). Enable **Preserve ownership and grants** in the UI to keep source owners and ACLs; use **Migrate roles from source** to create matching roles on CNPG first (RDS system roles are excluded). Role passwords are not copied (`--no-role-passwords`).
+- **Extensions** — CNPG often manages extensions via the Cluster `databases[].extensions` spec. **Skip extensions on restore** (default on) omits `CREATE EXTENSION` from `pg_restore` so the operator-provisioned extensions are used instead. The restore user is not a superuser on CNPG.
 - **Version downgrades** may fail (e.g. PG16 → PG15).
 - **No built-in authentication** on the UI — do not expose publicly without an auth layer (OAuth2 proxy, VPN, etc.).
 - **Credentials** are passed to Job pods as environment variables (Kubernetes Secrets integration is on the roadmap).

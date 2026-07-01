@@ -266,6 +266,44 @@ func pgRestoreMetaFlags(opts models.MigrationOptions) string {
 	return " --no-owner --no-acl"
 }
 
+// pgRestoreTOCFilter returns shell to build a pg_restore TOC list without EXTENSION entries.
+func pgRestoreTOCFilter(listFile, dumpPath string) string {
+	return fmt.Sprintf(`pg_restore -l %s | grep -vE ' EXTENSION | COMMENT - EXTENSION ' > %s`, dumpPath, listFile)
+}
+
+func pgRestoreWithOptionalTOC(conn, database, dumpPath, listFile, extraFlags string, jobs int, opts models.MigrationOptions) string {
+	metaFlags := pgRestoreMetaFlags(opts)
+	flags := fmt.Sprintf("%s -d %s", conn, database)
+	if opts.CleanBeforeRestore {
+		flags += " --clean --if-exists"
+	}
+	flags += extraFlags
+
+	if opts.SkipExtensions {
+		return fmt.Sprintf(`%s
+pg_restore %s%s -L %s -j %d %s`, pgRestoreTOCFilter(listFile, dumpPath), flags, metaFlags, listFile, jobs, dumpPath)
+	}
+	return fmt.Sprintf(`pg_restore %s%s -j %d %s`, flags, metaFlags, jobs, dumpPath)
+}
+
+func psqlRestorePlainSQL(conn, database, dumpPath string, opts models.MigrationOptions) string {
+	if opts.SkipExtensions {
+		return fmt.Sprintf(`filtered="/tmp/restore-filtered.sql"
+sed -E '/^CREATE EXTENSION/d;/^COMMENT ON EXTENSION/d' %s > "$filtered"
+psql %s -d %s -f "$filtered"`, dumpPath, conn, database)
+	}
+	return fmt.Sprintf(`psql %s -d %s -f %s`, conn, database, dumpPath)
+}
+
+func psqlRestorePlainSQLLoop(conn string, opts models.MigrationOptions) string {
+	if opts.SkipExtensions {
+		return fmt.Sprintf(`filtered="/tmp/restore-${db}.sql"
+sed -E '/^CREATE EXTENSION/d;/^COMMENT ON EXTENSION/d' "$dump_file" > "$filtered"
+psql %s -d "$db" -f "$filtered"`, conn)
+	}
+	return fmt.Sprintf(`psql %s -d "$db" -f "$dump_file"`, conn)
+}
+
 func roleDumpScript(host string, port int, user string) string {
 	return fmt.Sprintf(`
 echo "Dumping roles from source..."
@@ -588,11 +626,6 @@ func createDatabaseBash(conn string, preserveOwnership bool) string {
 
 func allDatabasesRestoreLoop(format, host string, port int, user string, jobs int, opts models.MigrationOptions) string {
 	conn := pgConnFlags(host, port, user)
-	metaFlags := pgRestoreMetaFlags(opts)
-	cleanFlags := ""
-	if opts.CleanBeforeRestore {
-		cleanFlags = " --clean --if-exists"
-	}
 	createDB := createDatabaseBash(conn, opts.PreserveOwnership)
 	switch format {
 	case "plain":
@@ -602,7 +635,7 @@ for dump_file in /dump/databases/*.sql; do
   db=$(basename "$dump_file" .sql)
   echo "Restoring database: $db"
 %s
-  psql %s -d "$db" -f "$dump_file"
+  %s
   RESTORED=$((RESTORED + 1))
 done
 
@@ -611,7 +644,7 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, createDB, conn)
+echo "Restore completed ($RESTORED databases)."`, createDB, psqlRestorePlainSQLLoop(conn, opts))
 	case "directory":
 		return fmt.Sprintf(`RESTORED=0
 for dump_dir in /dump/databases/*/; do
@@ -619,7 +652,7 @@ for dump_dir in /dump/databases/*/; do
   db=$(basename "$dump_dir")
   echo "Restoring database: $db"
 %s
-  pg_restore %s -d "$db"%s%s -j %d "$dump_dir"
+  %s
   RESTORED=$((RESTORED + 1))
 done
 
@@ -628,7 +661,7 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, createDB, conn, cleanFlags, metaFlags, jobs)
+echo "Restore completed ($RESTORED databases)."`, createDB, pgRestoreWithOptionalTOC(conn, `"$db"`, `"$dump_dir"`, `"/tmp/restore-${db}.list"`, "", jobs, opts))
 	default:
 		return fmt.Sprintf(`RESTORED=0
 for dump_file in /dump/databases/*.dump; do
@@ -636,7 +669,7 @@ for dump_file in /dump/databases/*.dump; do
   db=$(basename "$dump_file" .dump)
   echo "Restoring database: $db"
 %s
-  pg_restore %s -d "$db"%s%s -j %d "$dump_file"
+  %s
   RESTORED=$((RESTORED + 1))
 done
 
@@ -645,25 +678,19 @@ if [ "$RESTORED" -eq 0 ]; then
   exit 1
 fi
 
-echo "Restore completed ($RESTORED databases)."`, createDB, conn, cleanFlags, metaFlags, jobs)
+echo "Restore completed ($RESTORED databases)."`, createDB, pgRestoreWithOptionalTOC(conn, `"$db"`, `"$dump_file"`, `"/tmp/restore-${db}.list"`, "", jobs, opts))
 	}
 }
 
 func buildRestoreCommand(format, host string, port int, user, database, dumpFile string, jobs int, opts models.MigrationOptions) string {
 	conn := pgConnFlags(host, port, user)
-	metaFlags := pgRestoreMetaFlags(opts)
 	switch format {
 	case "custom", "directory":
-		flags := fmt.Sprintf("%s -d %s", conn, database)
-		if opts.CleanBeforeRestore {
-			flags += " --clean --if-exists"
-		}
-		return fmt.Sprintf(`pg_restore %s%s -j %d %s`, flags, metaFlags, jobs, dumpFile)
+		return pgRestoreWithOptionalTOC(conn, database, dumpFile, `"/dump/restore.list"`, "", jobs, opts)
 	case "plain":
-		return fmt.Sprintf(`psql %s -d %s -f %s`, conn, database, dumpFile)
+		return psqlRestorePlainSQL(conn, database, dumpFile, opts)
 	default:
-		return fmt.Sprintf(`pg_restore %s -d %s%s -j %d %s`,
-			conn, database, metaFlags, jobs, dumpFile)
+		return pgRestoreWithOptionalTOC(conn, database, dumpFile, `"/dump/restore.list"`, "", jobs, opts)
 	}
 }
 

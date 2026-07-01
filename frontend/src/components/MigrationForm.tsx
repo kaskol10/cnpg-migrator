@@ -32,6 +32,7 @@ const emptyForm = (config?: AppConfig): CreateMigrationRequest => ({
     clean_before_restore: false,
     preserve_ownership: false,
     migrate_roles: true,
+    skip_extensions: true,
     all_databases: false,
     exclude_databases: 'rdsadmin',
     storage_size: '50Gi',
@@ -400,6 +401,16 @@ export default function MigrationForm({ onCreated }: Props) {
                 onChange={(e) => updateOptions('migrate_roles', e.target.checked)}
               />
               Migrate roles from source
+            </label>
+          </div>
+          <div className="field" style={{ justifyContent: 'flex-end' }}>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.options.skip_extensions}
+                onChange={(e) => updateOptions('skip_extensions', e.target.checked)}
+              />
+              Skip extensions on restore
             </label>
           </div>
           <div className="field" style={{ justifyContent: 'flex-end' }}>
